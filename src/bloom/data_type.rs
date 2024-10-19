@@ -19,7 +19,7 @@ pub static BLOOM_FILTER_TYPE: ValkeyType = ValkeyType::new(
         rdb_load: Some(bloom_callback::bloom_rdb_load),
         rdb_save: Some(bloom_callback::bloom_rdb_save),
         // TODO
-        aof_rewrite: None,
+        aof_rewrite: Some(bloom_callback::bloom_aof_rewrite),
 
         mem_usage: Some(bloom_callback::bloom_mem_usage),
         // TODO

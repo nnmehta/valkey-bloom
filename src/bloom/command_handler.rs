@@ -441,3 +441,98 @@ pub fn bloom_filter_info(ctx: &Context, input_args: &[ValkeyString]) -> ValkeyRe
         _ => Err(ValkeyError::Str(utils::NOT_FOUND)),
     }
 }
+
+pub fn bloom_filter_load(ctx: &Context, input_args: &[ValkeyString]) -> ValkeyResult {
+    let argc = input_args.len();
+    if argc != 3 {
+        return Err(ValkeyError::WrongArity);
+    }
+    let mut idx = 1;
+    let filter_name = &input_args[idx];
+    idx += 1;
+    let value = &input_args[idx];
+    // find filter
+    let filter_key = ctx.open_key_writable(filter_name);
+
+    // if filter exists,
+    let filter = match filter_key.get_value::<BloomFilterType>(&BLOOM_FILTER_TYPE) {
+        Ok(v) => v,
+        Err(_) => {
+            // error
+            return Err(ValkeyError::Str(utils::ERROR));
+        }
+    };
+    match filter {
+        Some(_) => {
+            // if bloom exists, replace it.
+            match filter_key.delete() {
+                Ok(v) => v,
+                Err(_) => return Err(ValkeyError::Str(utils::ERROR)),
+            };
+            let hex = value.to_vec();
+            let new_bf = match BloomFilterType::decoder_bloom_filter(&hex) {
+                Ok(v) => v,
+                Err(_) => {
+                    return Err(ValkeyError::Str(utils::ERROR));
+                }
+            };
+            let key2 = ctx.open_key_writable(filter_name);
+            match key2.set_value(&BLOOM_FILTER_TYPE, new_bf) {
+                Ok(_) => {
+                    replicate_and_notify_events(ctx, filter_name, false, true);
+                    VALKEY_OK
+                }
+                Err(_) => Err(ValkeyError::Str(utils::ERROR)),
+            }
+        }
+        None => {
+            // if filter not exists, create it.
+            let hex = value.to_vec();
+            let bf = match BloomFilterType::decoder_bloom_filter(&hex) {
+                Ok(v) => v,
+                Err(_) => {
+                    return Err(ValkeyError::Str(utils::ERROR));
+                }
+            };
+            match filter_key.set_value(&BLOOM_FILTER_TYPE, bf) {
+                Ok(_) => {
+                    replicate_and_notify_events(ctx, filter_name, false, true);
+                    VALKEY_OK
+                }
+                Err(_) => Err(ValkeyError::Str(utils::ERROR)),
+            }
+        }
+    }
+}
+
+pub fn bloom_filter_dump(ctx: &Context, input_args: &[ValkeyString]) -> ValkeyResult {
+    let argc = input_args.len();
+    if argc != 2 {
+        return Err(ValkeyError::WrongArity);
+    }
+    let idx = 1;
+    let filter_name = &input_args[idx];
+    // find filter
+    let filter_key = ctx.open_key_writable(filter_name);
+
+    let value = match filter_key.get_value::<BloomFilterType>(&BLOOM_FILTER_TYPE) {
+        Ok(v) => v,
+        Err(_) => {
+            // not found return error
+            return Err(ValkeyError::Str(utils::INVALID_ARGUMENT));
+        }
+    };
+    match value {
+        Some(bf) => {
+            let hex = match bf.encoder_bloom_filter() {
+                Ok(val) => val,
+                Err(err) => {
+                    println!("encode bloom filter failed. {err}");
+                    return Err(ValkeyError::Str(utils::ERROR));
+                }
+            };
+            Ok(ValkeyValue::StringBuffer(hex))
+        }
+        None => Ok(ValkeyValue::Null),
+    }
+}

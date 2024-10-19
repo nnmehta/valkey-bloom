@@ -1,5 +1,7 @@
 use crate::configs::{FIXED_SEED, MAX_FILTERS_PER_OBJ, TIGHTENING_RATIO};
+use bincode;
 use bloomfilter;
+use serde::{Deserialize, Serialize};
 
 /// KeySpace Notification Events
 pub const ADD_EVENT: &str = "bloom.add";
@@ -18,6 +20,7 @@ pub const ERROR_RATE_RANGE: &str = "ERR (0 < error rate range < 1)";
 pub const CAPACITY_LARGER_THAN_0: &str = "ERR (capacity should be larger than 0)";
 pub const MAX_NUM_SCALING_FILTERS: &str = "ERR max number of scaling filters reached";
 pub const UNKNOWN_ARGUMENT: &str = "ERR unknown argument received";
+pub const INVALID_ARGUMENT: &str = "ERR invalid argument received";
 
 #[derive(Debug, PartialEq)]
 pub enum BloomError {
@@ -37,6 +40,7 @@ impl BloomError {
 /// The BloomFilterType structure. 32 bytes.
 /// Can contain one or more filters.
 /// This is a generic top level structure which is not coupled to any bloom crate.
+#[derive(Serialize, Deserialize)]
 pub struct BloomFilterType {
     pub expansion: u32,
     pub fp_rate: f32,
@@ -150,6 +154,19 @@ impl BloomFilterType {
         }
         Ok(0)
     }
+
+    pub fn encoder_bloom_filter(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
+        let vec = bincode::serialize(self)?;
+        Ok(vec)
+    }
+
+    pub fn decoder_bloom_filter(
+        decoded_bytes: &[u8],
+    ) -> Result<BloomFilterType, Box<dyn std::error::Error>> {
+        let deserialized_data = bincode::deserialize(decoded_bytes)?;
+
+        Ok(deserialized_data)
+    }
 }
 
 // Structure representing a single bloom filter. 200 Bytes.
@@ -158,6 +175,7 @@ impl BloomFilterType {
 // we have a limit on the memory usage of a `BloomFilter` to be 64MB.
 // Based on this, we expect the number of items on the `BloomFilter` to be
 // well within the u32::MAX limit.
+#[derive(Serialize, Deserialize)]
 pub struct BloomFilter {
     pub bloom: bloomfilter::Bloom<[u8]>,
     pub num_items: u32,
@@ -513,5 +531,36 @@ mod tests {
         assert_eq!(test_sip_keys[0].1, FIXED_SIP_KEY_ONE_B);
         assert_eq!(test_sip_keys[1].0, FIXED_SIP_KEY_TWO_A);
         assert_eq!(test_sip_keys[1].1, FIXED_SIP_KEY_TWO_B);
+    }
+
+    #[test]
+    fn test_bf_encoder_and_decoder() {
+        // arrange: prepare bloom filter
+        let mut bf = BloomFilterType::new_reserved(0.5_f32, 1000_u32, 2);
+        let key = "key";
+        let _ = bf.add_item(key.as_bytes());
+
+        // action
+        let encoder_result = bf.encoder_bloom_filter();
+
+        // assert
+        // encoder sucess
+        assert!(encoder_result.is_ok());
+        let vec = encoder_result.unwrap();
+
+        // assert decode:
+        let new_bf_result = BloomFilterType::decoder_bloom_filter(&vec);
+
+        assert!(new_bf_result.is_ok());
+
+        let new_bf = new_bf_result.unwrap();
+
+        // verify new_bf and bf
+        assert_eq!(bf.fp_rate, new_bf.fp_rate);
+        assert_eq!(bf.expansion, new_bf.expansion);
+        assert_eq!(bf.capacity(), new_bf.capacity());
+
+        // contains key
+        assert!(new_bf.item_exists(key.as_bytes()));
     }
 }

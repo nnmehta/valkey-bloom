@@ -1,6 +1,7 @@
 import pytest
 from valkey_bloom_test_case import ValkeyBloomTestCaseBase
 from valkeytests.conftest import resource_port_tracker
+import uuid
 
 class TestBloomCommand(ValkeyBloomTestCaseBase):
 
@@ -146,3 +147,20 @@ class TestBloomCommand(ValkeyBloomTestCaseBase):
         assert bf_info[filter_index] == self.client.execute_command('BF.INFO BF_INFO FILTERS') == 1
         assert bf_info[item_index] == self.client.execute_command('BF.INFO BF_INFO ITEMS') == 0
         assert bf_info[expansion_index] == self.client.execute_command('BF.INFO BF_INFO EXPANSION') == None
+
+    def test_bloom_load_can_override(self):
+        bf_key1 = uuid.uuid4()
+        bf_key2 = uuid.uuid4()
+        # arrange insert two key
+        assert self.client.execute_command('BF.RESERVE {} 0.1 10'.format(bf_key1)) == b'OK'
+        assert self.client.execute_command('BF.RESERVE {} 0.1 20'.format(bf_key2)) == b'OK'
+        assert self.client.execute_command('BF.ADD {} item'.format(bf_key2)) == 1
+        
+        key2_dump_value = self.client.execute_command('BF.DUMP {}'.format(bf_key2))
+        
+        # action recover key1 use key2 dump value
+        assert self.client.execute_command('BF.LOAD', str(bf_key1) ,key2_dump_value) == b'OK'
+
+        # assert key1 bf.exists item
+        assert self.client.execute_command('BF.EXISTS {} item'.format(bf_key1)) == 1
+        
