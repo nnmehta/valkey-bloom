@@ -1,6 +1,7 @@
 import pytest
 from valkey_bloom_test_case import ValkeyBloomTestCaseBase
 from valkeytests.conftest import resource_port_tracker
+import valkey
 import uuid
 
 class TestBloomCommand(ValkeyBloomTestCaseBase):
@@ -148,9 +149,10 @@ class TestBloomCommand(ValkeyBloomTestCaseBase):
         assert bf_info[item_index] == self.client.execute_command('BF.INFO BF_INFO ITEMS') == 0
         assert bf_info[expansion_index] == self.client.execute_command('BF.INFO BF_INFO EXPANSION') == None
 
-    def test_bloom_load_can_override(self):
+    def test_bloom_load_cant_override(self):
         bf_key1 = uuid.uuid4()
         bf_key2 = uuid.uuid4()
+        bf_new_key = uuid.uuid4()
         # arrange insert two key
         assert self.client.execute_command('BF.RESERVE {} 0.1 10'.format(bf_key1)) == b'OK'
         assert self.client.execute_command('BF.RESERVE {} 0.1 20'.format(bf_key2)) == b'OK'
@@ -158,9 +160,18 @@ class TestBloomCommand(ValkeyBloomTestCaseBase):
         
         key2_dump_value = self.client.execute_command('BF.DUMP {}'.format(bf_key2))
         
-        # action recover key1 use key2 dump value
-        assert self.client.execute_command('BF.LOAD', str(bf_key1) ,key2_dump_value) == b'OK'
+        # bf.load can't override exists key.
+        try:
+            # dump value is bytes, can't build into a single param, can't use verify_error_response.
+            self.client.execute_command('BF.LOAD', str(bf_key1) ,key2_dump_value)
+            assert False
+        except valkey.exceptions.ResponseError as e:
+            expected_err_reply = "-BUSYKEY Target key name already exists."
+            assert_error_msg = f"Actual error message: '{str(e)}' is different from expected error message '{expected_err_reply}'"
+            assert str(e) == expected_err_reply, assert_error_msg
+            
+        assert self.client.execute_command('BF.LOAD', str(bf_new_key) ,key2_dump_value) == b'OK'
 
-        # assert key1 bf.exists item
-        assert self.client.execute_command('BF.EXISTS {} item'.format(bf_key1)) == 1
+        # assert bf_new_key bf.exists item
+        assert self.client.execute_command('BF.EXISTS {} item'.format(bf_new_key)) == 1
         

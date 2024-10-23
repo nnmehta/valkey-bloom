@@ -21,7 +21,7 @@ class TestBloomAofRewrite(ValkeyBloomTestCaseBase):
         assert(len(bf_info_result_1)) != 0
         curr_item_count_1 = client.info_obj().num_keys()
         
-        # save rdb, restart sever
+        # save aof, restart sever
         client.bgrewriteaof()
         self.server.wait_for_action_done(ValkeyAction.AOF_REWRITE)
         # Keep the server running for 1 second more to have a larger uptime.

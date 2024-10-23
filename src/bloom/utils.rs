@@ -21,6 +21,9 @@ pub const CAPACITY_LARGER_THAN_0: &str = "ERR (capacity should be larger than 0)
 pub const MAX_NUM_SCALING_FILTERS: &str = "ERR max number of scaling filters reached";
 pub const UNKNOWN_ARGUMENT: &str = "ERR unknown argument received";
 pub const INVALID_ARGUMENT: &str = "ERR invalid argument received";
+pub const KEY_EXISTS: &str = "-BUSYKEY Target key name already exists.";
+
+pub const BLOOM_TYPE_VERSION: u8 = 1;
 
 #[derive(Debug, PartialEq)]
 pub enum BloomError {
@@ -42,6 +45,7 @@ impl BloomError {
 /// This is a generic top level structure which is not coupled to any bloom crate.
 #[derive(Serialize, Deserialize)]
 pub struct BloomFilterType {
+    pub version: u8,
     pub expansion: u32,
     pub fp_rate: f32,
     pub filters: Vec<BloomFilter>,
@@ -53,6 +57,7 @@ impl BloomFilterType {
         let bloom = BloomFilter::new(fp_rate, capacity);
         let filters = vec![bloom];
         BloomFilterType {
+            version: BLOOM_TYPE_VERSION,
             expansion,
             fp_rate,
             filters,
@@ -67,6 +72,7 @@ impl BloomFilterType {
             filters.push(new_filter);
         }
         BloomFilterType {
+            version: BLOOM_TYPE_VERSION,
             expansion: from_bf.expansion,
             fp_rate: from_bf.fp_rate,
             filters,
@@ -163,9 +169,31 @@ impl BloomFilterType {
     pub fn decoder_bloom_filter(
         decoded_bytes: &[u8],
     ) -> Result<BloomFilterType, Box<dyn std::error::Error>> {
-        let deserialized_data = bincode::deserialize(decoded_bytes)?;
+        if decoded_bytes.is_empty() {
+            return Err(bincode::Error::new(bincode::ErrorKind::Custom(
+                String::from("invalid data length"),
+            )));
+        }
+        let version = decoded_bytes[0];
+        match version {
+            1 => {
+                // always use new version to init bloomFilterType.
+                // This is to ensure that the new fields can be recognized when the object is serialized and deserialized in the future.
+                let (_, expansion, fp_rate, filters): (u8, u32, f32, Vec<BloomFilter>) =
+                    bincode::deserialize(decoded_bytes)?;
+                let filter = BloomFilterType {
+                    version: BLOOM_TYPE_VERSION,
+                    expansion,
+                    fp_rate,
+                    filters,
+                };
+                Ok(filter)
+            }
 
-        Ok(deserialized_data)
+            _ => Err(bincode::Error::new(bincode::ErrorKind::Custom(
+                String::from("not support version"),
+            ))),
+        }
     }
 }
 

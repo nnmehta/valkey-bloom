@@ -9,6 +9,8 @@ use std::os::raw::c_int;
 use valkey_module::native_types::ValkeyType;
 use valkey_module::{logging, raw};
 
+use super::utils::BLOOM_TYPE_VERSION;
+
 const BLOOM_FILTER_TYPE_ENCODING_VERSION: i32 = 0;
 
 pub static BLOOM_FILTER_TYPE: ValkeyType = ValkeyType::new(
@@ -104,6 +106,7 @@ impl ValkeyDataType for BloomFilterType {
             filters.push(filter);
         }
         let item = BloomFilterType {
+            version: BLOOM_TYPE_VERSION,
             expansion: expansion as u32,
             fp_rate,
             filters,
